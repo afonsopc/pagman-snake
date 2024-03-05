@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <title>Snake Game</title>
+    <style>
+        body {
+            margin: 0;
+            position: relative;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: rgb(0, 1, 17);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            padding-bottom: 30px;
+        }
+        canvas {
+            border: 1px solid white;
+            background-color: #111111;
+            border-radius: 10px;
+        }
+        .scores {
+            font-weight: normal;
+            padding-left: 1em;
+        }
+        #score {
+            color: green;
+            font-weight: bolder;
+        }
+        #highscore {
+            color: red;
+            font-weight: bolder;
+        }
+
+        #scoreTable {
+            border-collapse: collapse;
+            width: 70vw;
+        }
+
+        #scoreTable th, #scoreTable td {
+            border: 1px solid white;
+            padding: 8px;
+            text-align: left;
+        }
+
+        #scoreTable th {
+            background-color: #111111;
+        }
+
+        #scoreTable tr:nth-child(odd) {
+            background-color: #11111193;
+        }
+
+        .buttons {
+            padding: 20px;
+            display: flex;
+            gap: 20px;
+        }
+
+        .buttons img {
+            height: 50px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1 class="scores"><span class="score">Score: <span id="score">0</span></span> <span class="highscore">High Score: <span id="highscore">???</span></span></h1>
+    <canvas id="snakeCanvas"></canvas>
+    <!-- Add the following img tags -->
+    <div class="buttons">
+        <img id="startButton" class="button" src="joystick.svg" alt="Start Button">
+        <img id="pausePlayButton" class="button" src="pause-circle-fill.svg" alt="Pause/Play Button">
+    </div>
+    <div id="scoreboard">
+        <h2>Scoreboard</h2>
+        <table id="scoreTable">
+            <tr>
+                <th>Rank</th>
+                <th>User</th>
+                <th>Score</th>
+            </tr>
+        </table>
+    </div>
+    <script>
+        const canvas = document.getElementById('snakeCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        const audio = new Audio();
+        audio.src = "eat.mp3";
+        audio.preload = "auto";
+        audio.autoplay = false;
+        audio.loop = false;
+        audio.muted = false;
+        audio.volume = 0.5;
+        audio.load();
+
+        canvas.addEventListener("focus", () => {
+            // Adiciona a classe "canvas-active" quando o canvas é focado
+            document.body.classList.add("canvas-active");
+        });
+
+        canvas.addEventListener("blur", () => {
+            // Remove a classe "canvas-active" quando o canvas perde o foco
+            document.body.classList.remove("canvas-active");
+        });
+
+        const apiUrl = "http://localhost:3000"
+
+        const gridSize = 20;
+        let snake = [{x: 160, y: 160}];
+        let food = {x: 200, y: 200};
+        let speed = gridSize;
+        let dx = speed;
+        let dy = 0;
+        let score = 0;
+        let highScore = localStorage.getItem('snakeHighScore') || 0;
+        let boost = 1;
+
+        let canvasWidthDiscount = 1.35;
+        let canvasHeightDiscount = 1.5;
+        
+        let direction = '';
+        let nextDirection = '';
+
+        canvas.width = Math.floor((window.innerWidth / canvasWidthDiscount) / gridSize) * gridSize;
+        canvas.height = Math.floor((window.innerHeight / canvasHeightDiscount) / gridSize) * gridSize;
+
+        let fps = 10; // Defina o FPS desejado
+        let now;
+        let then = Date.now();
+        let delta;
+
+        function setUserScore(utilizador, score) {
+            fetch(apiUrl + '/scores', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ utilizador, score })
+            })
+            .then(response => response.json())
+            .then(data => console.log(data))
+            .catch(error => console.error('Error:', error));
+        }
+
+        function getScores() {
+            fetch(apiUrl + '/scores')
+            .then(response => response.json())
+            .then(data => {
+                const scoreTable = document.getElementById("scoreTable");
+                scoreTable.innerHTML = '<tr><th>Rank</th><th>User</th><th>Score</th></tr>';
+
+                if (data.length === 0 || !data) {
+                    const rowElement = document.createElement("tr");
+                    rowElement.innerHTML = `<td>1</td><td>Nenhum score encontrado</td><td>0</td>`;
+                    scoreTable.appendChild(rowElement);
+                } else {
+                    data.forEach((row, index) => {
+                        if (index === 0) {
+                            updateHighScore(row.score ?? 0);
+                        }
+                        const rowElement = document.createElement("tr");
+                        rowElement.innerHTML = `<td>${index + 1}</td><td>${row.utilizador}</td><td>${row.score}</td>`;
+                        scoreTable.appendChild(rowElement);
+                    });
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+        getScores();
+
+        function playEatSound() {
+            audio.currentTime = 0;
+            audio.play();
+        }
+
+        function updateScore(score) {
+            document.getElementById('score').innerText = score;
+        }
+
+        function updateHighScore(highScore) {
+            document.getElementById("highscore").innerText = highScore;
+        }
+
+        function drawSnake() {
+            snake.forEach((segment, index) => {
+                ctx.fillStyle = (index === 0) ? 'white' : 'green';
+                ctx.fillRect(segment.x, segment.y, gridSize, gridSize);
+                ctx.strokeStyle = 'black';
+                ctx.strokeRect(segment.x, segment.y, gridSize, gridSize);
+            });
+        }
+
+        function drawFood() {
+            ctx.fillStyle = 'red';
+            ctx.fillRect(food.x, food.y, gridSize, gridSize);
+            ctx.strokeStyle = 'black';
+            ctx.strokeRect(food.x, food.y, gridSize, gridSize);
+        }
+
+        function moveSnake() {
+            if (nextDirection) {
+                if (nextDirection === 'right') {
+                    dx = speed;
+                    dy = 0;
+                } else if (nextDirection === 'left') {
+                    dx = -speed;
+                    dy = 0;
+                } else if (nextDirection === 'up') {
+                    dx = 0;
+                    dy = -speed;
+                } else if (nextDirection === 'down') {
+                    dx = 0;
+                    dy = speed;
+                }
+                direction = nextDirection;
+                nextDirection = '';
+            }
+
+            const head = {x: snake[0].x + dx, y: snake[0].y + dy};
+
+            snake.unshift(head);
+
+            const gridSize = 20;
+            const proximity = gridSize;
+
+            const ateFood = Math.abs(food.x - snake[0].x) < proximity && Math.abs(food.y - snake[0].y) < proximity;
+
+
+            if (ateFood) {
+                score += 10;
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem('snakeHighScore', highScore);
+                    playEatSound();
+                }
+                updateScore(score);
+                spawnFood();
+            } else {
+                snake.pop();
+            }
+        }
+
+        function checkCollision() {
+            const head = snake[0];
+            if (
+                head.x < 0 ||
+                head.x >= canvas.width ||
+                head.y < 0 ||
+                head.y >= canvas.height ||
+                snake.slice(1).some(segment => segment.x === head.x && segment.y === head.y)
+            ) {
+                return true;
+            }
+            return false;
+        }
+
+        function spawnFood() {
+            food.x = Math.floor(Math.random() * (canvas.width / gridSize)) * gridSize;
+            food.y = Math.floor(Math.random() * (canvas.height / gridSize)) * gridSize;
+
+            if (snake.some(segment => segment.x === food.x && segment.y === food.y)) {
+                spawnFood();
+            }
+        }
+
+        function gameOver() {
+            gameStarted = false;
+            gamePaused = false;
+            pausePlayButton.style.display = "none";
+            startButton.style.display = "block";
+            snake = [{x: 160, y: 160}];
+            dx = 0;
+            dy = 0;
+            boost = 1;
+            if (score <= 0) {
+                alert("Game Over, you didn't get any points... so bad 🤣");
+                return;
+            }
+            let name = prompt(`Game Over! Your Score: ${score}. What is your name?`);
+            if (name) {
+                setUserScore(name, score)
+                getScores();
+            };
+            score = 0;
+            updateScore(score);
+        }
+
+        function update() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawFood();
+            moveSnake();
+            drawSnake();
+            if (checkCollision()) {
+                gameOver();
+            }
+        }
+
+        function keyDownHandler(e) {
+            if ((e.key === 'd' || e.key === 'D') && direction !== 'left') {
+                nextDirection = 'right';
+            } else if ((e.key === 'a' || e.key === 'A') && direction !== 'right') {
+                nextDirection = 'left';
+            } else if ((e.key === 'w' || e.key === 'W') && direction !== 'down') {
+                nextDirection = 'up';
+            } else if ((e.key === 's' || e.key === 'S') && direction !== 'up') {
+                nextDirection = 'down';
+            } else if (e.key === 'Shift') {
+                boost += 4;
+            } else if (e.key === 'Control') {
+                boost += 4;
+            }
+        }
+
+        function keyUpHandler(e) {
+            if (e.key === 'Shift') {
+                boost -= 4;
+            } else if (e.key === 'Control') {
+                boost -= 4;
+            }
+        }
+
+        document.addEventListener('keydown', keyDownHandler);
+        document.addEventListener('keyup', keyUpHandler);
+
+        function gameLoop() {
+            updateScore(score);
+            requestAnimationFrame(gameLoop);
+
+            if (gamePaused || !gameStarted) return;
+
+            now = Date.now();
+            delta = now - then;
+
+            let interval = (1000/boost) / fps;
+
+            if (delta > interval) {
+                then = now - (delta % interval);
+                // Coloque o código do seu jogo aqui
+                update(); // Função para atualizar o jogo
+            }
+        }
+
+        
+        const startButton = document.getElementById('startButton');
+        const pausePlayButton = document.getElementById('pausePlayButton');
+
+        let gameStarted = false;
+        let gamePaused = false;
+
+        pausePlayButton.style.display = "none";
+
+        startButton.addEventListener('click', () => {
+            if (!gameStarted) {
+                gameStarted = true;
+                startButton.style.display = 'none';
+                pausePlayButton.style.display = 'block';
+            }
+        });
+
+        pausePlayButton.addEventListener('click', () => {
+            if (gameStarted && !gamePaused) {
+                gamePaused = true;
+                pausePlayButton.src = 'play-circle-fill.svg';
+            } else if (gameStarted && gamePaused) {
+                gamePaused = false;
+                pausePlayButton.src = 'pause-circle-fill.svg';
+            }
+        });
+
+        gameLoop();
+        </script>
+</body>
+</html>
