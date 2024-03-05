@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Snake Game</title>
+    <link rel="icon" href="snake.jpg" type="image/x-icon">
     <style>
         body {
             margin: 0;
@@ -17,7 +18,7 @@
             padding-bottom: 30px;
         }
         canvas {
-            border: 1px solid white;
+            border: 1px solid rgb(48, 52, 54);
             background-color: #111111;
             border-radius: 10px;
         }
@@ -40,7 +41,7 @@
         }
 
         #scoreTable th, #scoreTable td {
-            border: 1px solid white;
+            border: 1px solid rgb(48, 52, 54);
             padding: 8px;
             text-align: left;
         }
@@ -106,7 +107,7 @@
             document.body.classList.remove("canvas-active");
         });
 
-        const apiUrl = "http://localhost:3000"
+        const apiUrl = "https://snake.pagman.org"
 
         const gridSize = 20;
         let snake = [{x: 160, y: 160}];
@@ -132,23 +133,28 @@
         let then = Date.now();
         let delta;
 
-        function setUserScore(utilizador, score) {
-            fetch(apiUrl + '/scores', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ utilizador, score })
-            })
-            .then(response => response.json())
-            .then(data => console.log(data))
-            .catch(error => console.error('Error:', error));
+        async function setUserScore(utilizador, score) {
+            try {
+                const response = await fetch(apiUrl + '/scores', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ utilizador, score })
+                });
+
+                const data = await response.json();
+                console.log(data);
+            } catch (error) {
+                console.error('Error:', error);
+            }
         }
 
-        function getScores() {
-            fetch(apiUrl + '/scores')
-            .then(response => response.json())
-            .then(data => {
+        async function getScores() {
+            try {
+                const response = await fetch(apiUrl + '/scores');
+                const data = await response.json();
+
                 const scoreTable = document.getElementById("scoreTable");
                 scoreTable.innerHTML = '<tr><th>Rank</th><th>User</th><th>Score</th></tr>';
 
@@ -166,8 +172,9 @@
                         scoreTable.appendChild(rowElement);
                     });
                 }
-            })
-            .catch(error => console.error('Error:', error));
+            } catch (error) {
+                console.error('Error:', error);
+            }
         }
 
         getScores();
@@ -267,7 +274,7 @@
             }
         }
 
-        function gameOver() {
+        async function gameOver() {
             gameStarted = false;
             gamePaused = false;
             pausePlayButton.style.display = "none";
@@ -282,20 +289,20 @@
             }
             let name = prompt(`Game Over! Your Score: ${score}. What is your name?`);
             if (name) {
-                setUserScore(name, score)
-                getScores();
+                await setUserScore(name, score)
+                await getScores();
             };
             score = 0;
             updateScore(score);
         }
 
-        function update() {
+        async function update() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             drawFood();
             moveSnake();
             drawSnake();
             if (checkCollision()) {
-                gameOver();
+                await gameOver();
             }
         }
 
@@ -326,7 +333,7 @@
         document.addEventListener('keydown', keyDownHandler);
         document.addEventListener('keyup', keyUpHandler);
 
-        function gameLoop() {
+        async function gameLoop() {
             updateScore(score);
             requestAnimationFrame(gameLoop);
 
@@ -340,7 +347,7 @@
             if (delta > interval) {
                 then = now - (delta % interval);
                 // Coloque o código do seu jogo aqui
-                update(); // Função para atualizar o jogo
+                await update(); // Função para atualizar o jogo
             }
         }
 
